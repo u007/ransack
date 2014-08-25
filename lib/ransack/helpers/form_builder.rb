@@ -62,11 +62,96 @@ module Ransack
       def sort_fields(*args, &block)
         search_fields(:s, args, block)
       end
+      
+      def multi_sort_link(search, field, attribute, *args)
+        # Extract out a routing proxy for url_for scoping later
+        if search.is_a?(Array)
+          routing_proxy = search.shift
+          search = search.first
+        end
+    
+        raise TypeError, "First argument must be a Ransack::Search!" unless
+          Ransack::Search === search
+
+        search_params = params[search.context.search_key].presence ||
+          {}.with_indifferent_access
+    
+        #attribute is a hash
+        attr_name = field if field.is_a?(String)
+        attr_name = field.to_s if field.is_a?(Symbol)
+    
+        options = args.first.is_a?(Hash) ? args.shift.dup : {}
+        default_order = options.delete :default_order
+    
+        sort_params = []
+        current_dir = "ASC"
+        attribute.each do |value|
+          if value.is_a?(Symbol)
+            field_name, dir = value.to_s.split(" ")
+          else
+            field_name, dir = value.split(" ")
+          end
+      
+      
+          #invert direction when no direction specified
+          if dir.nil?
+            if existing_sort = search.sorts.detect { |s| s.name == field_name }
+              prev_attr, prev_dir = existing_sort.name, existing_sort.dir
+            end
+        
+            current_dir = prev_attr == attr_name ? prev_dir : nil
+            if current_dir
+              new_dir = current_dir == 'desc' ? 'asc' : 'desc'
+            else
+              new_dir = default_order || 'asc'
+            end
+          else
+            new_dir = dir
+          end
+      
+          sort_params << field_name+" #{new_dir}"
+        end
+    
+        name = (
+          if args.size > 0 && !args.first.is_a?(Hash)
+            args.shift.to_s
+          else
+            Ransack::Translate.attribute(field, :context => search.context)
+          end
+          )
+
+        html_options = args.first.is_a?(Hash) ? args.shift.dup : {}
+        css = ['sort_link', current_dir].compact.join(' ')
+        html_options[:class] = [css, html_options[:class]].compact.join(' ')
+        query_hash = {}
+        query_hash[search.context.search_key] = search_params
+        .merge(:s => sort_params)
+    
+    
+    
+        options.merge!(query_hash)
+        options_for_url = params.merge options
+
+        url = if routing_proxy && respond_to?(routing_proxy)
+          send(routing_proxy).url_for(options_for_url)
+        else
+          url_for(options_for_url)
+        end
+
+        link_to(
+          [ERB::Util.h(name), order_indicator_for(current_dir)]
+            .compact
+            .join(' ')
+            .html_safe,
+          url,
+          html_options
+          )
+      end
 
       def sort_link(attribute, *args)
         @template.sort_link @object, attribute, *args
       end
-
+      
       def condition_fields(*args, &block)
         search_fields(:c, args, block)
       end
